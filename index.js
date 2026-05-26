@@ -51,7 +51,7 @@ async function askAIWithRotation(prompt) {
         body: JSON.stringify({
           model: model,
           messages: [{ role: "user", content: prompt }],
-          temperature: 0.5
+          temperature: 0.3
         })
       });
 
@@ -80,7 +80,9 @@ app.get('/haber-cek', async (req, res) => {
     try {
       console.log(`📡 ${feed.name} (${feed.dil.toUpperCase()}) çekiliyor...`);
       const feedData = await parser.parseURL(feed.url);
-      const sonHaberler = feedData.items.slice(0, 1);
+      
+      // AKILLI MOD: Boş geçişleri azaltmak için her ajansın en güncel 3 haberine birden bakıyoruz
+      const sonHaberler = feedData.items.slice(0, 3);
 
       for (const item of sonHaberler) {
         let haberId = item.guid || item.link || item.id;
@@ -95,29 +97,36 @@ app.get('/haber-cek', async (req, res) => {
 
         if (!haberId) continue;
 
+        // Veritabanı kontrolü (AI çağrılmadan önce yapılır, eski haberse kota harcamaz)
         const { data: mevcutHaber } = await supabase.from('haberler').select('id').eq('id', haberId).single();
         
-        // LOG EKRANINI CANLANDIRAN YENİ SATIR BURASI:
         if (mevcutHaber) {
-          console.log(`ℹ️ Zaten ekli (Atlandı): ${item.title.substring(0, 40)}...`);
+          console.log(`ℹ️ Zaten ekli (Atlandı): ${item.title.substring(0, 45)}...`);
           continue;
         }
 
-        await sleep(2500);
+        // Dakikalık limit koruması
+        await sleep(3000);
 
-        const prompt = `Aşağıdaki haberi oku. Bana sadece şu formatta yanıt ver:\nÖzet: [Haberin tek cümlelik Türkçe özeti]\nKategori: [Gündem, Teknoloji, Ekonomi veya Spor]\n\nBaşlık: ${item.title}\nİçerik: ${item.contentSnippet || item.content || ""}`;
+        // YENİ PROMPT: Yapay zekaya başlığı da Türkçe yapmasını emrediyoruz
+        const prompt = `Aşağıdaki yabancı dildeki haberi oku, başlığını ve içeriğini tamamen Türkçe'ye çevir. Bana sadece ve kesinlikle şu formatta yanıt ver, başka hiçbir kelime ekleme:\nBaşlık: [Haber başlığının Türkçe çevirisi]\nÖzet: [Haberin tek cümlelik Türkçe özeti]\nKategori: [Gündem, Teknoloji, Ekonomi veya Spor]\n\nOrijinal Başlık: ${item.title}\nİçerik: ${item.contentSnippet || item.content || ""}`;
 
         try {
           const aiResult = await askAIWithRotation(prompt);
+          
+          // Yapay zeka yanıtını parçalara ayırma
+          const baslikMatch = aiResult.content.match(/Başlık:\s*(.*)/i);
           const ozetMatch = aiResult.content.match(/Özet:\s*(.*)/i);
           const kategoriMatch = aiResult.content.match(/Kategori:\s*(.*)/i);
 
-          const ozet = ozetMatch ? ozetMatch[1] : item.contentSnippet || "Özet yok.";
-          const kategori = kategoriMatch ? kategoriMatch[1] : "Gündem";
+          // Eğer yapay zeka başlığı çevirdiyse onu al, çeviremediyse orijinali kalsın
+          const translatedTitle = baslikMatch ? baslikMatch[1].trim() : item.title;
+          const ozet = ozetMatch ? ozetMatch[1].trim() : item.contentSnippet || "Özet yok.";
+          const kategori = kategoriMatch ? kategoriMatch[1].trim() : "Gündem";
 
           const { error: supabaseError } = await supabase.from('haberler').insert([{
             id: haberId,
-            baslik: item.title,
+            baslik: translatedTitle, // ARTIK BAŞLIK VERİTABANINA TÜRKÇE YAZILIYOR!
             link: item.link || haberId,
             ozet: ozet,
             kategori: kategori,
@@ -133,7 +142,7 @@ app.get('/haber-cek', async (req, res) => {
             console.error(`❌ Supabase Kayıt Hatası:`, supabaseError.message);
           } else {
             eklenenHaberSayisi++;
-            console.log(`🚀 BAŞARILI: Veritabanına kaydedildi: ${item.title}`);
+            console.log(`🚀 BAŞARILI: Veritabanına Türkçe olarak kaydedildi: ${translatedTitle}`);
           }
         } catch (aiError) {
           console.error("Haber yapay zeka limitine takıldı, atlandı:", aiError.message);
