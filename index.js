@@ -17,12 +17,15 @@ const FEEDS = [
   { name: 'Cumhuriyet', url: 'https://www.cumhuriyet.com.tr/rss' }
 ];
 
-// YENİ KEŞFİNİ LİSTENİN EN BAŞINA KOYDUK:
+// OpenRouter'ın şu an yayında olan en güncel ücretsiz modelleri
 const AI_MODELS = [
-  "openrouter/free", // Tüm ücretsiz modelleri otomatik döndüren ana havuz
-  "google/gemini-2.0-flash:free",
-  "meta-llama/llama-3.1-8b-instruct:free"
+  "openrouter/free",
+  "google/gemini-2.5-flash:free",
+  "meta-llama/llama-3.3-70b-instruct:free",
+  "qwen/qwen-2.5-72b-instruct:free"
 ];
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function askAIWithRotation(prompt) {
   for (const model of AI_MODELS) {
@@ -57,7 +60,7 @@ async function askAIWithRotation(prompt) {
       console.error(`❌ Sistem hatası (${model}):`, e.message);
     }
   }
-  throw new Error("🚨 Tüm AI limitleri dolu!");
+  throw new Error("🚨 Maalesef rotasyondaki tüm AI modellerinin limitleri şu an dolu!");
 }
 
 app.get('/haber-cek', async (req, res) => {
@@ -67,13 +70,18 @@ app.get('/haber-cek', async (req, res) => {
   for (const feed of FEEDS) {
     try {
       const feedData = await parser.parseURL(feed.url);
-      const sonHaberler = feedData.items.slice(0, 3);
+      
+      // EKONOMİK MOD: Günlük 50 limiti korumak için sadece EN GÜNCEL 1 HABERİ alıyoruz
+      const sonHaberler = feedData.items.slice(0, 1);
 
       for (const item of sonHaberler) {
         const haberId = item.guid || item.link;
-        const { data: mevcutHaber } = await supabase.from('haberler').select('id').eq('id', haberId).single();
         
+        const { data: mevcutHaber } = await supabase.from('haberler').select('id').eq('id', haberId).single();
         if (mevcutHaber) continue;
+
+        // Anti-Spam Koruması: İki istek arasında 2.5 saniye mola
+        await sleep(2500);
 
         const prompt = `Aşağıdaki haberi oku. Bana sadece şu formatta yanıt ver:\nÖzet: [Haberin tek cümlelik Türkçe özeti]\nKategori: [Gündem, Teknoloji, Ekonomi veya Spor]\n\nBaşlık: ${item.title}\nİçerik: ${item.contentSnippet || item.content || ""}`;
 
@@ -85,7 +93,7 @@ app.get('/haber-cek', async (req, res) => {
           const ozet = ozetMatch ? ozetMatch[1] : item.contentSnippet || "Özet yok.";
           const kategori = kategoriMatch ? kategoriMatch[1] : "Gündem";
 
-          await supabase.from('haberler').insert([{
+          const { error: supabaseError } = await supabase.from('haberler').insert([{
             id: haberId,
             baslik: item.title,
             ozet: ozet,
@@ -94,15 +102,19 @@ app.get('/haber-cek', async (req, res) => {
             link: item.link,
             tarih: item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString()
           }]);
-          
-          eklenenHaberSayisi++;
-          console.log(`✅ Haber eklendi: ${item.title}`);
+
+          if (supabaseError) {
+            console.error(`❌ Supabase Veritabanı Kayıt Hatası:`, supabaseError.message);
+          } else {
+            eklenenHaberSayisi++;
+            console.log(`🚀 BAŞARILI: Haber veritabanına işlendi: ${item.title}`);
+          }
         } catch (aiError) {
           console.error("Haber işlenirken atlandı:", aiError.message);
         }
       }
     } catch (feedError) {
-      console.error(`${feed.name} hatası:`, feedError.message);
+      console.error(`${feed.name} RSS okuma hatası:`, feedError.message);
     }
   }
   res.send(`İşlem başarılı. ${eklenenHaberSayisi} yeni haber eklendi.`);
