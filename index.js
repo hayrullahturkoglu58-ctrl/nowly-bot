@@ -17,7 +17,9 @@ const FEEDS = [
   { name: 'Cumhuriyet', url: 'https://www.cumhuriyet.com.tr/rss' }
 ];
 
+// YENİ KEŞFİNİ LİSTENİN EN BAŞINA KOYDUK:
 const AI_MODELS = [
+  "openrouter/free", // Tüm ücretsiz modelleri otomatik döndüren ana havuz
   "google/gemini-2.0-flash:free",
   "meta-llama/llama-3.1-8b-instruct:free"
 ];
@@ -25,11 +27,14 @@ const AI_MODELS = [
 async function askAIWithRotation(prompt) {
   for (const model of AI_MODELS) {
     try {
+      console.log(`🤖 ${model} modeli çağrılıyor...`);
       const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${process.env.OPENROUTER_KEY}`,
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://nowly.app", 
+          "X-Title": "Nowly App"
         },
         body: JSON.stringify({
           model: model,
@@ -37,19 +42,24 @@ async function askAIWithRotation(prompt) {
           temperature: 0.5
         })
       });
-      if (response.status === 429 || !response.ok) continue;
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ OpenRouter Reddetme Nedeni (${model} - Durum ${response.status}):`, errorText);
+        continue;
+      }
+
       const data = await response.json();
       if (data.choices && data.choices[0]?.message?.content) {
         return data.choices[0].message.content.trim();
       }
     } catch (e) {
-      console.error(`${model} hatası:`, e.message);
+      console.error(`❌ Sistem hatası (${model}):`, e.message);
     }
   }
   throw new Error("🚨 Tüm AI limitleri dolu!");
 }
 
-// Tetikleme Noktası (Cron-job burayı çağıracak)
 app.get('/haber-cek', async (req, res) => {
   console.log("🔄 Tetiklendi! Haber tarama işlemi başladı...");
   let eklenenHaberSayisi = 0;
@@ -86,8 +96,9 @@ app.get('/haber-cek', async (req, res) => {
           }]);
           
           eklenenHaberSayisi++;
+          console.log(`✅ Haber eklendi: ${item.title}`);
         } catch (aiError) {
-          console.error(aiError.message);
+          console.error("Haber işlenirken atlandı:", aiError.message);
         }
       }
     } catch (feedError) {
@@ -97,7 +108,5 @@ app.get('/haber-cek', async (req, res) => {
   res.send(`İşlem başarılı. ${eklenenHaberSayisi} yeni haber eklendi.`);
 });
 
-// Ana sayfa boş kalmasın
 app.get('/', (req, res) => res.send('Nowly AI Rotator Çalışıyor!'));
-
 app.listen(port, () => console.log(`🚀 Sunucu ${port} portunda hazır!`));
