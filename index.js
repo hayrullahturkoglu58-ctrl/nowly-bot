@@ -14,7 +14,7 @@ const sleep  = ms => new Promise(r => setTimeout(r, ms));
 
 // ── ORTAM DEĞİŞKENLERİ ────────────────────────────────────────────
 const SUPABASE_URL         = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_KEY;
 const GOOGLE_AI_KEY        = process.env.GOOGLE_AI_KEY;
 const OPENROUTER_KEY       = process.env.OPENROUTER_KEY;
 
