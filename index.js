@@ -11,7 +11,6 @@ const supabaseKey = process.env.SUPABASE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 const parser = new Parser();
 
-// KÜRESEL VE YEREL TÜM AJANSLARIN LİSTESİ (Dil ve Bölge Ayarlarıyla Birlikte)
 const FEEDS = [
   { name: 'TRT Haber', url: 'https://www.trthaber.com/manset_articles.rss', bolge: 'turkiye', dil: 'tr' },
   { name: 'BBC Türkçe', url: 'https://feeds.bbci.co.uk/turkce/rss.xml', bolge: 'turkiye', dil: 'tr' },
@@ -23,7 +22,6 @@ const FEEDS = [
   { name: 'Der Spiegel', url: 'https://www.spiegel.de/index.rss', bolge: 'dunya', dil: 'de' },
   { name: 'Le Monde', url: 'https://www.lemonde.fr/rss/une.xml', bolge: 'dunya', dil: 'fr' },
   { name: 'RFI', url: 'https://www.rfi.fr/fr/general/rss', bolge: 'dunya', dil: 'fr' },
-  { name: 'Al Jazeera AR', url: 'https://www.aljazeera.net/xml/rss/all.xml', bolge: 'dunya', dil: 'ar' },
   { name: 'RT Arabiyya', url: 'https://arabic.rt.com/rss/', bolge: 'dunya', dil: 'ar' },
   { name: 'TASS', url: 'https://tass.com/rss/v2.xml', bolge: 'dunya', dil: 'en' },
   { name: 'Xinhua', url: 'https://www.xinhuanet.com/english/rss/worldrss.xml', bolge: 'dunya', dil: 'en' }
@@ -82,33 +80,29 @@ app.get('/haber-cek', async (req, res) => {
     try {
       console.log(`📡 ${feed.name} (${feed.dil.toUpperCase()}) çekiliyor...`);
       const feedData = await parser.parseURL(feed.url);
-      
-      // Ekonomik Mod: Her ajanstan sadece en güncel 1 haberi alıyoruz
       const sonHaberler = feedData.items.slice(0, 1);
 
       for (const item of sonHaberler) {
-        // KRİTİK ID KORUMASI: ID'nin null kalmasını kesinlikle engelliyoruz
         let haberId = item.guid || item.link || item.id;
         
         if (typeof haberId === 'object' && haberId !== null) {
           haberId = haberId.text || haberId.id || item.link;
         }
         
-        // Eğer hala boşsa başlıktan benzersiz bir string id üretiyoruz
         if (!haberId && item.title) {
           haberId = "news-" + item.title.toLowerCase().replace(/[^a-z0-9]/g, "").substring(0, 30) + "-" + item.title.length;
         }
 
-        if (!haberId) {
-          console.log("⚠️ Geçersiz haber (Başlık ve ID yok), atlanıyor.");
+        if (!haberId) continue;
+
+        const { data: mevcutHaber } = await supabase.from('haberler').select('id').eq('id', haberId).single();
+        
+        // LOG EKRANINI CANLANDIRAN YENİ SATIR BURASI:
+        if (mevcutHaber) {
+          console.log(`ℹ️ Zaten ekli (Atlandı): ${item.title.substring(0, 40)}...`);
           continue;
         }
 
-        // Mükerrer kontrolü
-        const { data: mevcutHaber } = await supabase.from('haberler').select('id').eq('id', haberId).single();
-        if (mevcutHaber) continue;
-
-        // Anti-Spam Koruması
         await sleep(2500);
 
         const prompt = `Aşağıdaki haberi oku. Bana sadece şu formatta yanıt ver:\nÖzet: [Haberin tek cümlelik Türkçe özeti]\nKategori: [Gündem, Teknoloji, Ekonomi veya Spor]\n\nBaşlık: ${item.title}\nİçerik: ${item.contentSnippet || item.content || ""}`;
@@ -121,7 +115,6 @@ app.get('/haber-cek', async (req, res) => {
           const ozet = ozetMatch ? ozetMatch[1] : item.contentSnippet || "Özet yok.";
           const kategori = kategoriMatch ? kategoriMatch[1] : "Gündem";
 
-          // Yeni kusursuz veritabanı şemasına tam uyumlu kayıt bloğu
           const { error: supabaseError } = await supabase.from('haberler').insert([{
             id: haberId,
             baslik: item.title,
