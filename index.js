@@ -1,248 +1,157 @@
-// ╔══════════════════════════════════════════════════════════════════╗
-// ║         NOWLY ZEN NEWS — ANA WORKER (RENDER.COM)                ║
-// ║  ESM formatı — package.json "type":"module" ile uyumlu          ║
-// ║  Google AI birincil → OpenRouter yedek                          ║
-// ╚══════════════════════════════════════════════════════════════════╝
-
 import express from 'express';
 import Parser from 'rss-parser';
 import { createClient } from '@supabase/supabase-js';
+import fetch from 'node-fetch';
 
-const app    = express();
-const parser = new Parser({ timeout: 10000 });
-const sleep  = ms => new Promise(r => setTimeout(r, ms));
+const app = express();
+const port = process.env.PORT || 3000;
 
-// ── ORTAM DEĞİŞKENLERİ ────────────────────────────────────────────
-const SUPABASE_URL         = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_KEY;
-const GOOGLE_AI_KEY        = process.env.GOOGLE_AI_KEY;
-const OPENROUTER_KEY       = process.env.OPENROUTER_KEY;
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
+const parser = new Parser();
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-
-// ── DÜNYA AJANSLARI — 20 KAYNAK, 8 DİL ───────────────────────────
-const KAYNAKLAR = [
-  // 🇹🇷 TÜRKİYE
-  { url: 'https://www.trthaber.com/sondakika.rss',                  kaynak: 'TRT Haber',       bolge: 'turkiye',       dil: 'tr' },
-  { url: 'https://feeds.bbci.co.uk/turkce/rss.xml',                 kaynak: 'BBC Türkçe',      bolge: 'turkiye',       dil: 'tr' },
-  { url: 'https://www.cumhuriyet.com.tr/rss/son_dakika.xml',        kaynak: 'Cumhuriyet',      bolge: 'turkiye',       dil: 'tr' },
-  { url: 'https://www.aa.com.tr/tr/rss/default?cat=guncel',         kaynak: 'Anadolu Ajansı',  bolge: 'turkiye',       dil: 'tr' },
-  { url: 'https://www.sabah.com.tr/rss/anasayfa.xml',               kaynak: 'Sabah',           bolge: 'turkiye',       dil: 'tr' },
-
-  // 🌍 ULUSLARARASI İNGİLİZCE AJANSLAR
-  { url: 'https://feeds.reuters.com/reuters/topNews',                kaynak: 'Reuters',         bolge: 'dunya',         dil: 'en' },
-  { url: 'https://feeds.bbci.co.uk/news/world/rss.xml',             kaynak: 'BBC World',       bolge: 'dunya',         dil: 'en' },
-  { url: 'https://rss.cnn.com/rss/edition_world.rss',               kaynak: 'CNN',             bolge: 'dunya',         dil: 'en' },
-  { url: 'https://feeds.skynews.com/feeds/rss/world.xml',           kaynak: 'Sky News',        bolge: 'dunya',         dil: 'en' },
-  { url: 'https://www.aljazeera.com/xml/rss/all.xml',               kaynak: 'Al Jazeera',      bolge: 'orta-dogu',     dil: 'en' },
-  { url: 'https://feeds.washingtonpost.com/rss/world',              kaynak: 'Washington Post', bolge: 'kuzey-amerika', dil: 'en' },
-  { url: 'https://rss.nytimes.com/services/xml/rss/nyt/World.xml',  kaynak: 'NY Times',        bolge: 'kuzey-amerika', dil: 'en' },
-
-  // 🇩🇪 ALMANCA
-  { url: 'https://www.spiegel.de/schlagzeilen/index.rss',           kaynak: 'Der Spiegel',     bolge: 'avrupa',        dil: 'de' },
-  { url: 'https://www.dw.com/de/rss/themen/s-9077/rss.xml',        kaynak: 'DW Deutsch',      bolge: 'avrupa',        dil: 'de' },
-
-  // 🇫🇷 FRANSIZCA
-  { url: 'https://www.lemonde.fr/rss/une.xml',                      kaynak: 'Le Monde',        bolge: 'avrupa',        dil: 'fr' },
-  { url: 'https://www.rfi.fr/fr/rss',                               kaynak: 'RFI',             bolge: 'avrupa',        dil: 'fr' },
-
-  // 🇸🇦 ARAPÇA
-  { url: 'https://www.aljazeera.net/aljazeerarss/1/1',              kaynak: 'Al Jazeera AR',   bolge: 'orta-dogu',     dil: 'ar' },
-  { url: 'https://arabic.rt.com/rss/',                              kaynak: 'RT Arabiyya',     bolge: 'orta-dogu',     dil: 'ar' },
-
-  // 🇷🇺 RUSÇA / 🇨🇳 ÇİNCE
-  { url: 'https://tass.ru/rss/v2.xml',                              kaynak: 'TASS',            bolge: 'asya',          dil: 'ru' },
-  { url: 'https://www.xinhuanet.com/english/rss/worldrss.xml',      kaynak: 'Xinhua',          bolge: 'asya',          dil: 'zh' },
+// KÜRESEL VE YEREL TÜM AJANSLARIN LİSTESİ (Dil ve Bölge Ayarlarıyla Birlikte)
+const FEEDS = [
+  { name: 'TRT Haber', url: 'https://www.trthaber.com/manset_articles.rss', bolge: 'turkiye', dil: 'tr' },
+  { name: 'BBC Türkçe', url: 'https://feeds.bbci.co.uk/turkce/rss.xml', bolge: 'turkiye', dil: 'tr' },
+  { name: 'Cumhuriyet', url: 'https://www.cumhuriyet.com.tr/rss', bolge: 'turkiye', dil: 'tr' },
+  { name: 'Sabah', url: 'https://www.sabah.com.tr/rss/gundem.xml', bolge: 'turkiye', dil: 'tr' },
+  { name: 'Al Jazeera EN', url: 'https://www.aljazeera.com/xml/rss/all.xml', bolge: 'dunya', dil: 'en' },
+  { name: 'Washington Post', url: 'https://feeds.washingtonpost.com/rss/world', bolge: 'dunya', dil: 'en' },
+  { name: 'NY Times', url: 'https://rss.nytimes.com/services/xml/rss/nyt/World.xml', bolge: 'dunya', dil: 'en' },
+  { name: 'Der Spiegel', url: 'https://www.spiegel.de/index.rss', bolge: 'dunya', dil: 'de' },
+  { name: 'Le Monde', url: 'https://www.lemonde.fr/rss/une.xml', bolge: 'dunya', dil: 'fr' },
+  { name: 'RFI', url: 'https://www.rfi.fr/fr/general/rss', bolge: 'dunya', dil: 'fr' },
+  { name: 'Al Jazeera AR', url: 'https://www.aljazeera.net/xml/rss/all.xml', bolge: 'dunya', dil: 'ar' },
+  { name: 'RT Arabiyya', url: 'https://arabic.rt.com/rss/', bolge: 'dunya', dil: 'ar' },
+  { name: 'TASS', url: 'https://tass.com/rss/v2.xml', bolge: 'dunya', dil: 'en' },
+  { name: 'Xinhua', url: 'https://www.xinhuanet.com/english/rss/worldrss.xml', bolge: 'dunya', dil: 'en' }
 ];
 
-// ── OpenRouter model rotasyonu ─────────────────────────────────────
-const OR_MODELLER = [
-  'google/gemini-2.5-flash:free',
-  'qwen/qwen-2.5-72b-instruct:free',
-  'mistralai/mistral-7b-instruct:free',
+const AI_MODELS = [
+  "openrouter/free",
+  "google/gemini-2.5-flash:free",
+  "meta-llama/llama-3.3-70b-instruct:free",
+  "qwen/qwen-2.5-72b-instruct:free"
 ];
-let orModelIdx = 0;
 
-// ══════════════════════════════════════════════════════════════════
-//  AI FONKSİYONLARI
-// ══════════════════════════════════════════════════════════════════
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function googleAI(prompt) {
-  if (!GOOGLE_AI_KEY) return null;
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GOOGLE_AI_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 200, temperature: 0.3 }
-        })
-      }
-    );
-    if (!res.ok) { console.warn(`⚠️ Google AI hata: ${res.status}`); return null; }
-    const d = await res.json();
-    return d.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
-  } catch (e) {
-    console.warn('⚠️ Google AI bağlantı hatası:', e.message);
-    return null;
-  }
-}
-
-async function openRouterAI(prompt) {
-  if (!OPENROUTER_KEY) return null;
-  const model = OR_MODELLER[orModelIdx % OR_MODELLER.length];
-  orModelIdx++;
-  try {
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${OPENROUTER_KEY}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://nowly-zen-news.com',
-        'X-Title': 'Nowly Zen News'
-      },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 200,
-        temperature: 0.3
-      })
-    });
-    if (res.status === 429) { console.warn('⚠️ OpenRouter rate limit!'); return null; }
-    const d = await res.json();
-    return d.choices?.[0]?.message?.content ?? null;
-  } catch (e) {
-    console.warn('⚠️ OpenRouter bağlantı hatası:', e.message);
-    return null;
-  }
-}
-
-async function aiOzetAl(haber) {
-  const dilAciklama = { tr:'Türkçe', en:'İngilizce', de:'Almanca', fr:'Fransızca', ar:'Arapça', ru:'Rusça', zh:'Çince' };
-  const dilAd = dilAciklama[haber.dil] || 'yabancı dil';
-
-  const prompt = `Sen bir haber editörüsün. Aşağıdaki ${dilAd} haberi oku.
-Haberi Türkçeye çevir ve tek cümlelik Türkçe özet yaz.
-
-Başlık: "${haber.title}"
-İçerik: "${(haber.content || haber.contentSnippet || '').slice(0, 400)}"
-
-SADECE şu JSON formatında yanıt ver, başka hiçbir şey yazma:
-{"ozet": "Türkçe tek cümlelik özet", "kategori": "Politika/Ekonomi/Spor/Teknoloji/Dünya/Sağlık/Kültür/Bilim/Çevre/Genel"}`;
-
-  // 1. Google dene
-  let ham = await googleAI(prompt);
-  let ai_kaynak = 'google';
-
-  // 2. Google başarısızsa OpenRouter
-  if (!ham) {
-    console.log('🔄 Google AI başarısız, OpenRouter deneniyor...');
-    ham = await openRouterAI(prompt);
-    ai_kaynak = 'openrouter';
-  }
-
-  // 3. Her ikisi de başarısızsa başlığı kullan
-  if (!ham) {
-    return { ozet: haber.title, kategori: 'Genel', ai_kaynak: 'none' };
-  }
-
-  try {
-    const eslesme = ham.match(/\{[\s\S]*?\}/);
-    if (eslesme) return { ...JSON.parse(eslesme[0]), ai_kaynak };
-  } catch (_) {}
-
-  return { ozet: haber.title, kategori: 'Genel', ai_kaynak: 'fallback' };
-}
-
-// ══════════════════════════════════════════════════════════════════
-//  ANA HABER ÇEKME FONKSİYONU
-// ══════════════════════════════════════════════════════════════════
-async function haberCek() {
-  console.log('\n🚀 ===== NOWLY HABER ÇEKME BAŞLADI =====');
-  console.log(`⏰ ${new Date().toISOString()}`);
-
-  let toplamYeni = 0;
-  let toplamAI   = 0;
-
-  for (const kaynak of KAYNAKLAR) {
+async function askAIWithRotation(prompt) {
+  for (const model of AI_MODELS) {
     try {
-      console.log(`\n📡 ${kaynak.kaynak} (${kaynak.dil.toUpperCase()}) çekiliyor...`);
-      const feed = await parser.parseURL(kaynak.url);
-      const haberler = (feed.items || []).slice(0, 3); // Her kaynaktan 3 haber
+      console.log(`🤖 ${model} modeli çağrılıyor...`);
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.OPENROUTER_KEY}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://nowly.app", 
+          "X-Title": "Nowly App"
+        },
+        body: JSON.stringify({
+          model: model,
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.5
+        })
+      });
 
-      for (const haber of haberler) {
-        const link = haber.link || haber.guid;
-        if (!link) continue;
-
-        // Mükerrer kontrolü
-        const { data: mevcut } = await supabase
-          .from('haberler')
-          .select('id')
-          .eq('link', link)
-          .maybeSingle();
-
-        if (mevcut) continue;
-
-        // AI özet al
-        const aiSonuc = await aiOzetAl({ ...haber, dil: kaynak.dil });
-        toplamAI++;
-
-        // Kaydet
-        const { error } = await supabase.from('haberler').insert({
-          baslik:        haber.title || 'Başlıksız',
-          link:          link,
-          ozet:          aiSonuc.ozet,
-          kategori:      aiSonuc.kategori || 'Genel',
-          kaynak:        kaynak.kaynak,
-          bolge:         kaynak.bolge,
-          dil:           kaynak.dil,
-          tarih:         haber.pubDate ? new Date(haber.pubDate).toISOString() : new Date().toISOString(),
-          ai_kullanildi: aiSonuc.ai_kaynak !== 'none',
-          ai_kaynak:     aiSonuc.ai_kaynak,
-        });
-
-        if (!error) {
-          toplamYeni++;
-          console.log(`  ✅ [${aiSonuc.ai_kaynak.toUpperCase()}] ${haber.title?.slice(0, 60)}`);
-        } else {
-          console.error(`  ❌ Kayıt hatası: ${error.message}`);
-        }
-
-        await sleep(300);
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ OpenRouter Reddetme Nedeni (${model}):`, errorText);
+        continue;
       }
-      await sleep(500);
 
-    } catch (err) {
-      console.error(`❌ ${kaynak.kaynak} HATA: ${err.message}`);
+      const data = await response.json();
+      if (data.choices && data.choices[0]?.message?.content) {
+        return { content: data.choices[0].message.content.trim(), model: model };
+      }
+    } catch (e) {
+      console.error(`❌ Sistem hatası (${model}):`, e.message);
     }
   }
-
-  console.log(`\n🏁 TAMAMLANDI — Yeni: ${toplamYeni} haber, AI: ${toplamAI} istek\n`);
-  return { toplamYeni, toplamAI };
+  throw new Error("🚨 Tüm AI limitleri dolu!");
 }
 
-// ══════════════════════════════════════════════════════════════════
-//  EXPRESS ENDPOINT'LERİ
-// ══════════════════════════════════════════════════════════════════
 app.get('/haber-cek', async (req, res) => {
-  try {
-    const sonuc = await haberCek();
-    res.json({ ok: true, ...sonuc, zaman: new Date().toISOString() });
-  } catch (err) {
-    console.error('❌ Kritik hata:', err);
-    res.status(500).json({ ok: false, hata: err.message });
+  console.log("🔄 Tetiklendi! Haber tarama işlemi başladı...");
+  let eklenenHaberSayisi = 0;
+
+  for (const feed of FEEDS) {
+    try {
+      console.log(`📡 ${feed.name} (${feed.dil.toUpperCase()}) çekiliyor...`);
+      const feedData = await parser.parseURL(feed.url);
+      
+      // Ekonomik Mod: Her ajanstan sadece en güncel 1 haberi alıyoruz
+      const sonHaberler = feedData.items.slice(0, 1);
+
+      for (const item of sonHaberler) {
+        // KRİTİK ID KORUMASI: ID'nin null kalmasını kesinlikle engelliyoruz
+        let haberId = item.guid || item.link || item.id;
+        
+        if (typeof haberId === 'object' && haberId !== null) {
+          haberId = haberId.text || haberId.id || item.link;
+        }
+        
+        // Eğer hala boşsa başlıktan benzersiz bir string id üretiyoruz
+        if (!haberId && item.title) {
+          haberId = "news-" + item.title.toLowerCase().replace(/[^a-z0-9]/g, "").substring(0, 30) + "-" + item.title.length;
+        }
+
+        if (!haberId) {
+          console.log("⚠️ Geçersiz haber (Başlık ve ID yok), atlanıyor.");
+          continue;
+        }
+
+        // Mükerrer kontrolü
+        const { data: mevcutHaber } = await supabase.from('haberler').select('id').eq('id', haberId).single();
+        if (mevcutHaber) continue;
+
+        // Anti-Spam Koruması
+        await sleep(2500);
+
+        const prompt = `Aşağıdaki haberi oku. Bana sadece şu formatta yanıt ver:\nÖzet: [Haberin tek cümlelik Türkçe özeti]\nKategori: [Gündem, Teknoloji, Ekonomi veya Spor]\n\nBaşlık: ${item.title}\nİçerik: ${item.contentSnippet || item.content || ""}`;
+
+        try {
+          const aiResult = await askAIWithRotation(prompt);
+          const ozetMatch = aiResult.content.match(/Özet:\s*(.*)/i);
+          const kategoriMatch = aiResult.content.match(/Kategori:\s*(.*)/i);
+
+          const ozet = ozetMatch ? ozetMatch[1] : item.contentSnippet || "Özet yok.";
+          const kategori = kategoriMatch ? kategoriMatch[1] : "Gündem";
+
+          // Yeni kusursuz veritabanı şemasına tam uyumlu kayıt bloğu
+          const { error: supabaseError } = await supabase.from('haberler').insert([{
+            id: haberId,
+            baslik: item.title,
+            link: item.link || haberId,
+            ozet: ozet,
+            kategori: kategori,
+            kaynak: feed.name,
+            tarih: item.pubDate ? new Date(item.pubDate).toISOString() : new Date().toISOString(),
+            bolge: feed.bolge,
+            dil: feed.dil,
+            ai_kullanildi: aiResult.model,
+            ai_kaynak: 'openrouter'
+          }]);
+
+          if (supabaseError) {
+            console.error(`❌ Supabase Kayıt Hatası:`, supabaseError.message);
+          } else {
+            eklenenHaberSayisi++;
+            console.log(`🚀 BAŞARILI: Veritabanına kaydedildi: ${item.title}`);
+          }
+        } catch (aiError) {
+          console.error("Haber yapay zeka limitine takıldı, atlandı:", aiError.message);
+        }
+      }
+    } catch (feedError) {
+      console.error(`❌ ${feed.name} Okuma Hatası:`, feedError.message);
+    }
   }
+  res.send(`İşlem başarılı. ${eklenenHaberSayisi} yeni haber eklendi.`);
 });
 
-app.get('/ping', (req, res) => res.send('🟢 Nowly Worker çalışıyor'));
-
-app.get('/', (req, res) => res.send(`
-  <h2>🌿 Nowly Zen News Worker</h2>
-  <p>✅ Servis aktif</p>
-  <p><a href="/haber-cek">Manuel tetikle</a> | <a href="/ping">Ping</a></p>
-`));
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🌿 Nowly Worker ayakta → port ${PORT}`));
+app.get('/', (req, res) => res.send('Nowly Global AI Rotator Canlıda!'));
+app.listen(port, () => console.log(`🚀 Sunucu ${port} portunda hazır!`));
